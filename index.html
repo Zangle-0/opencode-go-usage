@@ -60,9 +60,16 @@ tr.low .badge{background:#ffe1e1;color:var(--bad)}
 .bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),#22c55e);border-radius:99px;transition:width .4s}
 tr.low .bar>i{background:linear-gradient(90deg,#f59e0b,var(--bad))}
 .copy{padding:5px 10px;font-size:12px}
+.zenbar{display:flex;gap:12px;margin:16px 0 0}
+.zen{flex:1;background:linear-gradient(135deg,#10233f,#1d4ed8 70%,#0ea5e9);color:#fff;border-radius:var(--radius);padding:12px 16px;box-shadow:0 2px 8px rgba(20,40,60,.15)}
+.zen .k{font-size:12px;opacity:.8}
+.zen .v{font-size:20px;font-weight:700;margin-top:2px}
+.zen .s{font-size:12px;opacity:.85;margin-top:2px}
+.zen .zbar{height:6px;background:rgba(255,255,255,.25);border-radius:99px;overflow:hidden;margin-top:8px}
+.zen .zbar>i{display:block;height:100%;background:#fff;border-radius:99px}
 .num{font-variant-numeric:tabular-nums;font-family:ui-monospace,Consolas,monospace}
 .foot{color:var(--muted);font-size:12px;text-align:center;margin-top:14px}
-@media(max-width:800px){.stats{grid-template-columns:repeat(2,1fr)}input[type=password]{min-width:0;width:100%}}
+@media(max-width:800px){.stats{grid-template-columns:repeat(2,1fr)}.zenbar{flex-direction:column}input[type=password]{min-width:0;width:100%}}
 </style>
 </head>
 <body>
@@ -70,6 +77,12 @@ tr.low .bar>i{background:linear-gradient(90deg,#f59e0b,var(--bad))}
   <div class="hero">
     <h1>OpenCode Go 用量看板</h1>
     <p>总量 / 已用 / 剩余一目了然，按剩余切换模型 · 数据来自本地代理（<a href="https://opencode.ai/console" target="_blank">Console</a>），Key 只存本机</p>
+  </div>
+
+  <div class="zenbar" id="zenbar" style="display:none">
+    <div class="zen"><div class="k">官方 · 滚动窗口</div><div class="v num" id="zRoll">–</div><div class="s" id="zRollR"></div><div class="zbar"><i id="zRollB"></i></div></div>
+    <div class="zen"><div class="k">官方 · 周</div><div class="v num" id="zWeek">–</div><div class="s" id="zWeekR"></div><div class="zbar"><i id="zWeekB"></i></div></div>
+    <div class="zen"><div class="k">官方 · 月</div><div class="v num" id="zMon">–</div><div class="s" id="zMonR"></div><div class="zbar"><i id="zMonB"></i></div></div>
   </div>
 
   <div class="stats">
@@ -137,7 +150,14 @@ async function query(){
     stTok.textContent = fmtTok(ALL.reduce((a,x) => a + (x.tok_total_30d || 0), 0));
     stCount.textContent = '共 ' + ALL.length + ' 个模型';
     let extra = window._extra.length ? '｜表外有花费模型：' + window._extra.map(u => u.id + ' $' + u.billable_30d).join('，') : '';
-    status.textContent = window._warn + extra;
+    status.textContent = (j.limits_source === 'live go/limits' ? '' : '限额为本地fallback；') + window._warn + extra;
+    const z = j.zen;
+    if(z && z.rolling){
+      zenbar.style.display = 'flex';
+      zRoll.textContent = z.rolling.percent + '%'; zRollB.style.width = Math.min(100, z.rolling.percent) + '%'; zRollR.textContent = fmtReset(z.rolling.resetsAt);
+      zWeek.textContent = z.weekly.percent + '%'; zWeekB.style.width = Math.min(100, z.weekly.percent) + '%'; zWeekR.textContent = fmtReset(z.weekly.resetsAt);
+      zMon.textContent = z.monthly.percent + '%'; zMonB.style.width = Math.min(100, z.monthly.percent) + '%'; zMonR.textContent = fmtReset(z.monthly.resetsAt);
+    } else { zenbar.style.display = 'none'; }
     ts.textContent = '更新于 ' + new Date().toLocaleString();
   }catch(e){ status.textContent = '请求失败：' + e + '。确认 server.py 还在运行，且页面地址是 http://localhost:8765/（F12 看明细）'; }
   finally{ load.disabled = false; load.textContent = '查询'; }
@@ -149,6 +169,16 @@ function fmtTok(n){
   if(n >= 1e6) return (n/1e6).toFixed(2) + 'M';
   if(n >= 1e3) return (n/1e3).toFixed(1) + 'K';
   return '' + n;
+}
+
+function fmtReset(iso){
+  if(!iso) return '';
+  const ms = new Date(iso).getTime() - Date.now();
+  if(!(ms > 0)) return '已重置';
+  const m = Math.floor(ms/60000), d = Math.floor(m/1440), h = Math.floor(m%1440/60), mm = m%60;
+  if(d > 0) return d + '天' + h + '小时后重置';
+  if(h > 0) return h + '小时' + mm + '分后重置';
+  return mm + '分钟后重置';
 }
 
 function render(){

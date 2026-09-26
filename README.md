@@ -8,6 +8,7 @@ OpenCode Go 订阅用量看板：各模型月总量 / 已用 / 剩余 / token，
 
 * 数据源 1：`GET /console/api/v2/usage/export`（v1 已下线）——按 UTC 天汇总的用量 CSV，`cost` 字段即 Go 定价花费，`provider=opencode-go` 圈定订阅用量
 * 数据源 2：`GET /console/api/go/limits`——官方限额 live 拉取（本地 `GO_LIMITS.json` 只做 fallback）
+* 数据源 3：`GET /zen/go/v1/usage`——官方总体用量（滚动/周/月百分比 + 重置时间），表头直接显示官方口径
 * 后端只是带 Key 的转发代理（顺带解决浏览器 CORS），Key 只存你自己手里，不落库
 
 ## 本地运行

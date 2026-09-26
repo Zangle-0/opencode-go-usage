@@ -18,6 +18,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONSOLE_URL = os.environ.get("CONSOLE_URL", "https://opencode.ai/console").rstrip("/")
+ZEN_URL = os.environ.get("ZEN_URL", "https://opencode.ai/zen").rstrip("/")
 DEFAULT_PORT = int(os.environ.get("PORT", "8765"))
 
 # .env 简易加载 (key=value, 忽略 # 注释)
@@ -41,9 +42,9 @@ def norm_model(s):
     return (s or "").strip().lower()
 
 
-def _api_get(api_key, path, params, accept):
-    """调 Console API, 返回文本. 失败时抛出带状态码的异常."""
-    url = CONSOLE_URL + path + "?" + urllib.parse.urlencode(params)
+def _api_get(api_key, path, params, accept, base=None):
+    """调 Console/Zen API, 返回文本. 失败时抛出带状态码的异常."""
+    url = (base or CONSOLE_URL) + path + "?" + urllib.parse.urlencode(params)
     req = urllib.request.Request(url, headers={
         "Authorization": "Bearer " + api_key,
         "Accept": accept,
@@ -78,6 +79,13 @@ def fetch_go_limits(api_key):
         out[mid] = {"display": m.get("name") or m.get("id"),
                     "monthly_limit": go.get("usage")}
     return out
+
+
+def fetch_zen_usage(api_key):
+    """官方总体用量: {rolling, weekly, monthly: {status, percent, resetsAt}}.
+    无分模型维度, 失败时由调用方吞掉(表格照常工作)."""
+    data = json.loads(_api_get(api_key, "/go/v1/usage", {}, "application/json", ZEN_URL))
+    return data.get("usage")
 
 
 def _f(row, *keys):
@@ -213,6 +221,10 @@ class Handler(BaseHTTPRequestHandler):
                 today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
                 per30, ex30 = aggregate(fetch_v2_csv(api_key, "30d", user_id), today)
                 per7, _ex7 = aggregate(fetch_v2_csv(api_key, "7d", user_id), today)
+                try:
+                    zen = fetch_zen_usage(api_key)
+                except Exception:
+                    zen = None  # 总体条拿不到不影响表格
                 pricebook = {norm_model(m["id"]): m.get("price") for m in load_limits()["models"]}
                 try:
                     live = fetch_go_limits(api_key)
@@ -267,6 +279,7 @@ class Handler(BaseHTTPRequestHandler):
                                        "records": agg["records"], "by_billing": agg["by_billing"],
                                        "by_provider": agg.get("by_provider", {})})
                 self._send(200, json.dumps({"rows": rows, "unknown_models": extras,
+                                            "zen": zen,
                                             "limits_source": limits_source, "warn": "v2按UTC天汇总(含今日),数据可滞后数小时;7d≈周,30d≈月,今日≈5h窗口参考"}))
             except RuntimeError as e:
                 self._send(502, json.dumps({"error": str(e)}))
