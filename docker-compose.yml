@@ -1,0 +1,17 @@
+services:
+  go-usage:
+    image: python:3.12-slim
+    container_name: go-usage
+    working_dir: /app
+    # 把本目录挂进容器, server.py / index.html / GO_LIMITS.json 改完重启容器即生效, 无需 build
+    volumes:
+      - ./:/app
+    command: ["python", "server.py", "--host", "0.0.0.0", "--port", "8765"]
+    ports:
+      - "8765:8765"
+    environment:
+      # 外网访问必须设! 改成你自己的强 PIN, 页面查询时填写
+      - VIEWER_PIN=请改成你自己的强PIN
+      # 可选: 预置 Console Key 到服务端, 设了之后页面可不填 Key(仍建议页面填, 不落 NAS)
+      - CONSOLE_API_KEY=
+    restart: always

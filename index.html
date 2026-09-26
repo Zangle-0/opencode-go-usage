@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OpenCode Go 用量看板</title>
+<style>
+:root{
+  --bg:#f4f6f8; --card:#fff; --ink:#1c2530; --muted:#6b7a8d;
+  --line:#e6ebf0; --accent:#0ea47e; --accent-d:#0b7d60;
+  --warn:#b26a00; --warn-bg:#fff7e8; --bad:#d64545; --bad-bg:#fff1f1;
+  --radius:14px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+.wrap{margin:0;padding:20px 24px 60px}
+.hero{background:linear-gradient(135deg,#0c2b26,#0ea47e 70%,#22c55e);
+  color:#fff;border-radius:20px;padding:26px 28px;box-shadow:0 12px 30px rgba(14,164,126,.25)}
+.hero h1{margin:0;font-size:22px;letter-spacing:.5px}
+.hero p{margin:8px 0 0;opacity:.85;font-size:13px}
+.hero a{color:#fff}
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:16px 0}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:14px 16px;box-shadow:0 2px 8px rgba(20,40,60,.05)}
+.stat .k{font-size:12px;color:var(--muted)}
+.stat .v{font-size:22px;font-weight:700;margin-top:4px}
+.stat .s{font-size:12px;color:var(--muted);margin-top:2px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:0 2px 10px rgba(20,40,60,.06);overflow:hidden}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
+input[type=password],input[type=text],select{
+  padding:9px 12px;font-size:14px;border:1px solid var(--line);border-radius:10px;background:#fbfcfd;outline:none}
+input[type=password]{min-width:280px}
+input:focus,select:focus{border-color:var(--accent);background:#fff}
+button{padding:9px 16px;font-size:14px;border-radius:10px;border:1px solid transparent;cursor:pointer}
+#load{background:var(--accent);color:#fff;font-weight:600}
+#load:hover{background:var(--accent-d)}
+#load:disabled{opacity:.6;cursor:wait}
+#save{background:#eef4f1;color:var(--accent-d);font-weight:600}
+.ghost{background:#fff;border-color:var(--line);color:var(--ink)}
+.chk{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+#warn{margin:0;padding:10px 16px;font-size:12.5px;color:var(--warn);background:var(--warn-bg);border-bottom:1px solid #f0e2c4}
+#status{margin:0;padding:10px 16px;font-size:12.5px;color:var(--muted);border-bottom:1px solid var(--line)}
+.tablewrap{overflow-x:auto}
+table{border-collapse:separate;border-spacing:0;width:100%;font-size:13.5px;min-width:1250px}
+thead th{position:sticky;top:0;background:#f8fafb;z-index:1;text-align:right;
+  padding:10px 12px;color:var(--muted);font-weight:600;border-bottom:1px solid var(--line);white-space:nowrap}
+thead th:nth-child(1),tbody td:nth-child(1){text-align:left}
+tbody td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+tbody tr:hover td{background:#f6fbf9}
+tr.low td{background:var(--bad-bg)}
+.model{display:flex;gap:10px;align-items:center}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--accent);flex:none}
+.model b{display:block;font-size:14px}
+.model small{color:var(--muted);font-family:ui-monospace,Consolas,monospace}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700;background:#e9f7f1;color:var(--accent-d)}
+tr.low .badge{background:#ffe1e1;color:var(--bad)}
+.bar{height:8px;background:#edf1f4;border-radius:99px;overflow:hidden;min-width:140px}
+.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),#22c55e);border-radius:99px;transition:width .4s}
+tr.low .bar>i{background:linear-gradient(90deg,#f59e0b,var(--bad))}
+.copy{padding:5px 10px;font-size:12px}
+.num{font-variant-numeric:tabular-nums;font-family:ui-monospace,Consolas,monospace}
+.foot{color:var(--muted);font-size:12px;text-align:center;margin-top:14px}
+@media(max-width:800px){.stats{grid-template-columns:repeat(2,1fr)}input[type=password]{min-width:0;width:100%}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <h1>OpenCode Go 用量看板</h1>
+    <p>总量 / 已用 / 剩余一目了然，按剩余切换模型 · 数据来自本地代理（<a href="https://opencode.ai/console" target="_blank">Console</a>），Key 只存本机</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="k">月总量（全部模型）</div><div class="v num" id="stTotal">$–</div><div class="s">官方 Go 月限额合计</div></div>
+    <div class="stat"><div class="k">30d 已用（估算）</div><div class="v num" id="stSpent">$–</div><div class="s">max(官方计费, token×单价)</div></div>
+    <div class="stat"><div class="k">月剩余（估算）</div><div class="v num" id="stRemain">$–</div><div class="s">总量 − 已用</div></div>
+    <div class="stat"><div class="k">低余量模型（&lt;20%）</div><div class="v num" id="stLow">–</div><div class="s" id="stCount">共 – 个模型</div></div>
+    <div class="stat"><div class="k">30d Token 总计</div><div class="v num" id="stTok">–</div><div class="s">输入+输出+缓存</div></div>
+  </div>
+
+  <div class="card">
+    <div class="toolbar">
+      <input id="key" type="password" placeholder="Service Account Key（oc_sk_...）">
+      <input id="pin" type="password" placeholder="访问 PIN（NAS 部署时填）" size="20">
+      <button id="load">查询</button>
+      <button id="save" class="ghost">记住 Key</button>
+      <select id="sort">
+        <option value="pct">按剩余 % 排序</option>
+        <option value="rem">按剩余 $ 排序</option>
+        <option value="spent">按已用排序</option>
+        <option value="tok">按 Token 排序</option>
+      </select>
+      <input id="q" type="text" placeholder="搜索模型">
+      <label class="chk"><input type="checkbox" id="hide0"> 隐藏 30d 无用量</label>
+    </div>
+    <div id="warn">口径：总量 = 官方 Go 限额（live，不可用时回退本地表）；已用 = v2 按 UTC 天汇总（排除非 Go provider 行）；剩余 = 总量 − 30d 已用。7d ≈ 周，30d ≈ 月，今日（UTC）≈ 5h 窗口。v2 数据可滞后数小时，请以 Console 为准。</div>
+    <p id="status">填写 Key 后点查询</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr>
+          <th>模型</th><th>月总量 $</th><th>30d 已用 $</th><th>月剩余 $ / %</th>
+          <th>用量</th><th>30d Token 明细</th><th>30d Token 总计</th><th>7d 已用 ≈ 周</th><th>今日已用 / 5h线</th><th>切换</th>
+        </tr></thead>
+        <tbody id="tb"></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="foot">本地运行 · <span id="ts"></span></div>
+</div>
+
+<script>
+let ALL = [];
+key.value = localStorage.getItem('go_key') || '';
+pin.value = localStorage.getItem('go_pin') || '';
+save.onclick = () => { localStorage.setItem('go_key', key.value); localStorage.setItem('go_pin', pin.value); status.textContent = '已记住在本地浏览器'; };
+q.oninput = render; sort.onchange = render; hide0.onchange = render;
+
+async function query(){
+  if(location.protocol === 'file:'){ status.textContent = '请用 http://localhost:8765/ 打开，不要双击 index.html（file:// 下 /api 请求发不出去）'; return; }
+  if(!key.value){ status.textContent = '请先填写 Key'; return; }
+  load.disabled = true; load.textContent = '查询中…'; status.textContent = '正在拉取 v2 30d/7d + 官方限额…';
+  try{
+    const r = await fetch('/api/usage?scope=organization', { headers: { 'X-Api-Key': key.value, 'X-Access-Pin': pin.value } });
+    const j = await r.json();
+    if(j.error){ status.textContent = '失败：' + j.error; return; }
+    ALL = j.rows; window._warn = j.warn; window._extra = j.unknown_models || [];
+    render();
+    const total = ALL.filter(x => !x.unlimited).reduce((a,x) => a + x.monthly_limit, 0);
+    const spent = ALL.reduce((a,x) => a + x.spent_30d, 0);
+    const low = ALL.filter(x => !x.unlimited && x.remaining_pct < 20).length;
+    stTotal.textContent = '$' + total.toFixed(2);
+    stSpent.textContent = '$' + spent.toFixed(2);
+    stRemain.textContent = '$' + (total - spent).toFixed(2);
+    stLow.textContent = low;
+    stTok.textContent = fmtTok(ALL.reduce((a,x) => a + (x.tok_total_30d || 0), 0));
+    stCount.textContent = '共 ' + ALL.length + ' 个模型';
+    let extra = window._extra.length ? '｜表外有花费模型：' + window._extra.map(u => u.id + ' $' + u.billable_30d).join('，') : '';
+    status.textContent = window._warn + extra;
+    ts.textContent = '更新于 ' + new Date().toLocaleString();
+  }catch(e){ status.textContent = '请求失败：' + e + '。确认 server.py 还在运行，且页面地址是 http://localhost:8765/（F12 看明细）'; }
+  finally{ load.disabled = false; load.textContent = '查询'; }
+}
+
+function fmtTok(n){
+  n = n || 0;
+  if(n >= 1e9) return (n/1e9).toFixed(2) + 'B';
+  if(n >= 1e6) return (n/1e6).toFixed(2) + 'M';
+  if(n >= 1e3) return (n/1e3).toFixed(1) + 'K';
+  return '' + n;
+}
+
+function render(){
+  let rows = [...ALL];
+  const qv = q.value.trim().toLowerCase();
+  if(qv) rows = rows.filter(x => (x.id + x.display).toLowerCase().includes(qv));
+  if(hide0.checked) rows = rows.filter(x => x.spent_30d > 0);
+  const s = sort.value;
+  const remPct = x => x.unlimited ? Infinity : x.remaining_pct;
+  const remUsd = x => x.unlimited ? Infinity : x.remaining_month;
+  rows.sort((a,b) => s === 'pct' ? remPct(a) - remPct(b) : s === 'rem' ? remUsd(a) - remUsd(b) : s === 'tok' ? (b.tok_total_30d||0) - (a.tok_total_30d||0) : b.spent_30d - a.spent_30d);
+  const colors = ['#0ea47e','#6366f1','#f59e0b','#ec4899','#14b8a6','#8b5cf6'];
+  tb.innerHTML = rows.map((x,i) => {
+    const pct = (!x.unlimited && x.monthly_limit) ? Math.min(100, x.spent_30d / x.monthly_limit * 100) : 0;
+    const low = (!x.unlimited && x.remaining_pct < 20) ? ' class="low"' : '';
+    const dot = colors[i % colors.length];
+    const limCell = x.unlimited ? 'Unlimited' : x.monthly_limit;
+    const remCell = x.unlimited ? '<span class="badge">Unlimited</span>'
+      : `<span class="badge">${x.remaining_pct}%</span> <span class="num">$${x.remaining_month}</span>`;
+    const weekCell = x.unlimited ? '–' : `${x.spent_7d} / ${x.weekly_limit}`;
+    const dayCell = x.unlimited ? '–' : `${x.spent_today} / ${x.five_h_limit}`;
+    return `<tr${low}><td><div class="model"><span class="dot" style="background:${dot}"></span>`
+      + `<div><b>${x.display}</b><small>opencode-go/${x.id}</small></div></div></td>`
+      + `<td class="num">${limCell}</td><td class="num">${x.spent_30d}</td>`
+      + `<td>${remCell}</td>`
+      + `<td><div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div></td>`
+      + `<td class="num" title="输入 ${(x.tok_in_30d||0).toLocaleString()} / 输出 ${(x.tok_out_30d||0).toLocaleString()} / 缓存 ${(x.tok_cache_30d||0).toLocaleString()}">in ${fmtTok(x.tok_in_30d)} / out ${fmtTok(x.tok_out_30d)} / cache ${fmtTok(x.tok_cache_30d)}</td>`
+      + `<td class="num"><b>${fmtTok(x.tok_total_30d)}</b></td>`
+      + `<td class="num">${weekCell}</td>`
+      + `<td class="num">${dayCell}</td>`
+      + `<td><button class="ghost copy" onclick="navigator.clipboard.writeText('opencode-go/${x.id}');this.textContent='已复制';setTimeout(()=>this.textContent='复制',1200)">复制</button></td></tr>`;
+  }).join('') || '<tr><td colspan="10" style="text-align:center;color:#999">暂无数据，先点查询</td></tr>';
+}
+load.onclick = query;
+render();
+</script>
+</body>
+</html>

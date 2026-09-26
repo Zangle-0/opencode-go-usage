@@ -1,0 +1,10 @@
+# 本机密钥与运行时产物（勿提交）
+.env
+__pycache__/
+*.pyc
+*.log
+
+# 一次性诊断/抓包产物（勿提交）
+_*.py
+_v2_*.csv
+_golimits.json
