@@ -37,6 +37,12 @@ docker compose up -d
 * 7d ≈ 周，30d ≈ 月，今日（UTC）≈ 5h 窗口；v2 数据可滞后数小时
 * 金额为估算，请以 [OpenCode Console](https://opencode.ai/console) 为准
 
+## 更新日志
+
+* 2026-09-26：表头新增官方总体用量条（`zen/go/v1/usage`，滚动/周/月百分比 + 重置倒计时）
+* 2026-09-26：数据源从 v1/export 迁到 v2/export + go/limits live 限额（官方下线 v1）；24h 列改为今日（UTC）；限额表同步到 35 个模型
+* 2026-09-23：初版，本地代理 + 网页看板；Docker 部署，PIN 门禁
+
 ## License
 
 MIT
