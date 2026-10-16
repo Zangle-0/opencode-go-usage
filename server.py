@@ -6,12 +6,22 @@
 前端把 Service Account Key (oc_sk_...) 放在请求头 X-Api-Key 发给本代理,
 代理再以 Authorization: Bearer 转调官方 Console, 避免浏览器 CORS 和 Key 裸奔到第三方.
 也支持服务端预置: set CONSOLE_API_KEY=oc_sk_... (或写 .env 文件).
+
+记账口径 (2026-10 实测逆向, 详见 README):
+  官方三个池 (Go 套餐): 5h-from-first-use $12 / UTC 日历周 $30 / 付费周期 $60
+  单模型月限额 L **不是独立桶, 而是权重**:
+      在模型 i 上花 $X, 会消耗池 $X * (period / L_i)
+  => 官方月度% = Σ(花费_i / L_i) * 100
+     官方周   = 周内 Σ * (period / week) * 100
+     官方滚动 = 5h 内 Σ * (period / five_h) * 100
+  所以"总共花了多少钱"和"额度用了百分之几"永远对不上 —— 前者没有额度含义.
 """
-import csv
-import datetime
-import io
+import hashlib
 import json
 import os
+import socket
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -20,6 +30,30 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONSOLE_URL = os.environ.get("CONSOLE_URL", "https://opencode.ai/console").rstrip("/")
 ZEN_URL = os.environ.get("ZEN_URL", "https://opencode.ai/zen").rstrip("/")
 DEFAULT_PORT = int(os.environ.get("PORT", "8765"))
+
+# Go 套餐三个池 (美元). 兜底值, 可被 GO_LIMITS.json 的 pool 字段覆盖.
+# 来源: Console 前端 bundle 里的 usageLimits 常量
+#   go      -> fiveHoursFromFirstUse 12 / utcCalendarWeek 30 / paidPeriod 60
+#   go-plus -> 48 / 120 / 240
+DEFAULT_POOL = {"five_h": 12.0, "week": 30.0, "period": 60.0}
+
+MICRO_PER_USD = 100_000_000.0  # cost_micro_cents -> USD (一亿, 不是一百万)
+
+
+def _self_hash():
+    """server.py 自身的短哈希。index.html 每次请求都重新读盘, 但 server.py 是启动时
+    载入内存的 —— 改了不重启就不会生效, 而 Windows 上 HTTPServer 默认
+    allow_reuse_address, 第二个实例绑同一端口不报错, 于是旧进程继续应答,
+    表现为"改了但页面没变" (踩过两次)。页脚显示这个哈希, 一眼就能对上。"""
+    try:
+        with open(os.path.abspath(__file__), "rb") as f:
+            return hashlib.sha1(f.read()).hexdigest()[:8]
+    except OSError:
+        return "unknown"
+
+
+BUILD = _self_hash()
+STARTED_AT = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 # .env 简易加载 (key=value, 忽略 # 注释)
 _env_path = os.path.join(BASE_DIR, ".env")
@@ -31,6 +65,7 @@ if os.path.exists(_env_path):
                 k, v = line.split("=", 1)
                 os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
     CONSOLE_URL = os.environ.get("CONSOLE_URL", CONSOLE_URL).rstrip("/")
+    ZEN_URL = os.environ.get("ZEN_URL", ZEN_URL).rstrip("/")
 
 
 def load_limits():
@@ -42,128 +77,149 @@ def norm_model(s):
     return (s or "").strip().lower()
 
 
+def usd(micro):
+    """micro-cents -> USD."""
+    try:
+        return float(micro or 0) / MICRO_PER_USD
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _api_get(api_key, path, params, accept, base=None):
     """调 Console/Zen API, 返回文本. 失败时抛出带状态码的异常."""
     url = (base or CONSOLE_URL) + path + "?" + urllib.parse.urlencode(params)
     req = urllib.request.Request(url, headers={
         "Authorization": "Bearer " + api_key,
         "Accept": accept,
-        "User-Agent": "go-usage-viewer/1.0",
+        "User-Agent": "go-usage-viewer/2.0",
     })
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
             return resp.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace")[:500]
+        body = e.read().decode("utf-8", errors="replace")[:300]
         raise RuntimeError(f"官方接口 {e.code}: {body}")
 
 
-def fetch_v2_csv(api_key, range_, user_id=None):
-    """v2 按天汇总导出. range 仅支持 7d/30d/90d, 含今日UTC.
-    v1 已下线(组织迁v2后401/403), 不再使用."""
-    params = {"range": range_}
-    if user_id:
-        params["user_id"] = user_id
-    return _api_get(api_key, "/api/v2/usage/export", params, "text/csv")
+def fetch_usage_models(api_key, page_size=100):
+    """官方 per-model 用量, 不分 provider 混在一起返回.
 
-
-def fetch_go_limits(api_key):
-    """Console Go 页同款官方限额. 返回 {model_id: {display, monthly_limit}}."""
-    data = json.loads(_api_get(api_key, "/api/go/limits", {}, "application/json"))
-    out = {}
-    for m in data.get("models", []):
-        mid = norm_model(m.get("id"))
-        if not mid:
-            continue
-        go = (m.get("limits") or {}).get("go") or {}
-        out[mid] = {"display": m.get("name") or m.get("id"),
-                    "monthly_limit": go.get("usage")}
-    return out
+    GET /console/api/usage/models —— 不传 range 即当前付费周期.
+    必须翻页: pageSize 默认只有 10, 大账号会静默丢数据 (踩过).
+    """
+    items, page = [], 1
+    while True:
+        data = json.loads(_api_get(api_key, "/api/usage/models",
+                                   {"pageSize": page_size, "page": page},
+                                   "application/json"))
+        items.extend(data.get("items") or [])
+        info = data.get("pageInfo") or {}
+        if page >= (info.get("pageCount") or 1) or page >= 50:  # 安全阀
+            break
+        page += 1
+    return items
 
 
 def fetch_zen_usage(api_key):
-    """官方总体用量: {rolling, weekly, monthly: {status, percent, resetsAt}}.
-    无分模型维度, 失败时由调用方吞掉(表格照常工作)."""
+    """官方三窗口百分比: {rolling, weekly, monthly: {status, percent, resetsAt}}.
+
+    只有取整后的百分比; fetch_go_status 可用时就轮不到它了, 这里作兜底."""
     data = json.loads(_api_get(api_key, "/go/v1/usage", {}, "application/json", ZEN_URL))
     return data.get("usage")
 
 
-def _f(row, *keys):
-    for k in keys:
-        v = row.get(k)
-        if v not in (None, ""):
-            try:
-                return float(v)
-            except ValueError:
-                return 0.0
-    return 0.0
+def fetch_go_status(api_key):
+    """Console Go 页同款订阅状态: 三窗口精确 limit/used (micro-cents) + 付费周期起止.
+
+    GET /console/api/go/status —— Console 自己调的接口, Service Account Key 可用.
+    这是唯一能拿到官方"池子到底花了多少美元"的地方 (zen 只给取整百分比).
+    Console 前端的百分比公式 (assets/meters-*.js 的 Gm()) 就是 round(used/limit*100).
+    失败时由调用方吞掉, 回退到 zen.
+    """
+    data = json.loads(_api_get(api_key, "/api/go/status", {}, "application/json"))
+    access = data.get("access") or {}
+    meters = access.get("meters") or {}
+
+    def one(key):
+        m = meters.get(key) or {}
+        limit = usd(m.get("limitMicroCents"))
+        if limit <= 0:
+            return None
+        used = usd(m.get("usedMicroCents"))
+        return {"limit_usd": round(limit, 4), "used_usd": round(used, 4),
+                "remaining_usd": round(limit - used, 4),
+                "pct": round(used / limit * 100, 2),
+                "starts_at": m.get("startsAt"), "resets_at": m.get("resetsAt")}
+
+    return {"product": data.get("product"),
+            "period": {"starts_at": access.get("startsAt"), "ends_at": access.get("endsAt")},
+            "five_hour": one("fiveHour"), "week": one("week"), "month": one("month")}
 
 
 def _new_agg():
-    return {"spent_usd": 0.0, "billable_usd": 0.0, "records": 0, "requests": 0,
-            "by_billing": {}, "by_provider": {},
-            "input_tokens": 0.0, "output_tokens": 0.0,
-            "cache_read_tokens": 0.0, "cache_write_tokens": 0.0,
-            "today_cost": 0.0}
+    return {"cost": 0.0, "requests": 0, "tok_in": 0, "tok_out": 0, "tok_cache": 0}
 
 
-def aggregate(csv_text, today=None):
-    """聚合用量 CSV. 返回 (go_models, extras).
+def build_rows(usage_items, models):
+    """把官方用量按模型聚合, 再和限额表算「占额度 %」.
 
-    v2 schema 按UTC天汇总: day,user_type,...,provider,model,requests,
-    input/output/cache_*_tokens,cost_micro_cents. v2 的 cost 已是 Go 定价,
-    直接信任; 无 billing_source 列, 用 provider=='opencode-go' 圈定订阅用量.
-    v1 schema (无 day 列) 保留兼容: 按 billing 排除 byok/free.
-    today: 'YYYY-MM-DD' (UTC), 用于今日切片.
+    返回 (rows, unknown, local_pct). local_pct 是各行 quota_pct 之和 ——
+    它应当约等于官方月度百分比, 也是对限额表是否过期最直接的自检。
     """
-    out, extras = {}, {}
-    reader = csv.DictReader(io.StringIO(csv_text))
-    v2 = bool(reader.fieldnames and "day" in reader.fieldnames)
-    for row in reader:
-        mid = norm_model(row.get("model"))
+    by_model = {}
+    for it in usage_items:
+        if (it.get("provider") or "").strip() != "opencode-go":
+            continue  # BYOK / 其他 provider 不占 Go 额度
+        mid = norm_model(it.get("model"))
         if not mid:
-            continue  # web-search 等非模型行跳过
-        usd = _f(row, "cost_micro_cents") / 100_000_000
-        billing = (row.get("billing_source") or "").strip() or "unknown"
-        provider = (row.get("provider") or "").strip()
-        tok_in = _f(row, "input_tokens")
-        tok_out = _f(row, "output_tokens", "reasoning_tokens")
-        tok_cr = _f(row, "cache_read_tokens")
-        tok_cw = _f(row, "cache_write_5m_tokens") + _f(row, "cache_write_1h_tokens")
-        go_row = (provider == "opencode-go") if v2 else (billing not in ("byok", "free"))
-        if go_row:
-            key, target = mid, out
-        else:
-            key, target = provider + " / " + mid if provider else mid, extras
-        entry = target.setdefault(key, _new_agg())
-        entry["spent_usd"] += usd
-        entry["billable_usd"] += usd
-        entry["records"] += 1
-        entry["requests"] += int(_f(row, "requests"))
-        entry["by_billing"][billing] = entry["by_billing"].get(billing, 0) + usd
-        entry["by_provider"][provider] = entry["by_provider"].get(provider, 0) + 1
-        entry["input_tokens"] += tok_in
-        entry["output_tokens"] += tok_out
-        entry["cache_read_tokens"] += tok_cr
-        entry["cache_write_tokens"] += tok_cw
-        if v2 and today and (row.get("day") or "")[:10] == today:
-            entry["today_cost"] += usd
-    return out, extras
+            continue
+        a = by_model.setdefault(mid, _new_agg())
+        a["cost"] += usd(it.get("totalCostMicroCents"))
+        a["requests"] += int(float(it.get("totalRequests") or 0))
+        a["tok_in"] += int(float(it.get("totalInputTokens") or 0))
+        a["tok_out"] += int(float(it.get("totalOutputTokens") or 0))
+        a["tok_cache"] += int(float(it.get("totalCacheReadTokens") or 0))
+        a["tok_cache"] += int(float(it.get("totalCacheWrite5mTokens") or 0))
+        a["tok_cache"] += int(float(it.get("totalCacheWrite1hTokens") or 0))
 
+    rows, local_pct, known = [], 0.0, set()
+    for m in models:
+        mid = norm_model(m.get("id"))
+        known.add(mid)
+        a = by_model.get(mid, _new_agg())
+        raw_limit = m.get("monthly_limit_usd")
+        unlimited = raw_limit is None
+        limit = None if unlimited else float(raw_limit)
+        quota_pct = None
+        if not unlimited and limit and limit > 0:
+            quota_pct = a["cost"] / limit * 100.0
+            local_pct += quota_pct
+        rows.append({
+            "id": m["id"],
+            "display": m.get("display", m["id"]),
+            "unlimited": unlimited,
+            "monthly_limit": limit,
+            "quota_pct": None if quota_pct is None else round(quota_pct, 2),
+            "spent_usd": round(a["cost"], 4),
+            "requests": a["requests"],
+            "tok_in": a["tok_in"],
+            "tok_out": a["tok_out"],
+            "tok_cache": a["tok_cache"],
+            "tok_total": a["tok_in"] + a["tok_out"] + a["tok_cache"],
+            "note": m.get("note", ""),
+            "stale": bool(m.get("stale")),
+        })
 
-def go_priced(agg, price):
-    """按 Go 单价表 ($/1M tokens) 估算订阅额度消耗."""
-    if not price:
-        return 0.0
-    inp = agg.get("input_tokens", 0) * (price.get("input") or 0)
-    outp = agg.get("output_tokens", 0) * (price.get("output") or 0)
-    cr = agg.get("cache_read_tokens", 0) * (price.get("cached_read") or 0)
-    cw = agg.get("cache_write_tokens", 0) * (price.get("cached_write") or 0)
-    return (inp + outp + cr + cw) / 1_000_000
+    # 有限额表之外、但确实花了额度的模型: 单独列出提醒补表
+    unknown = [{"id": mid, "spent_usd": round(a["cost"], 4), "requests": a["requests"]}
+               for mid, a in by_model.items() if mid not in known and a["cost"] > 0]
+    unknown.sort(key=lambda r: -r["spent_usd"])
+    rows.sort(key=lambda r: (r["quota_pct"] is None, -(r["quota_pct"] or 0)))
+    return rows, unknown, local_pct
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "GoUsageViewer/1.0"
+    server_version = "GoUsageViewer/2.0"
 
     def _send(self, code, body, ctype="application/json"):
         data = body.encode("utf-8") if isinstance(body, str) else body
@@ -171,6 +227,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype + "; charset=utf-8")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "X-Api-Key, X-Access-Pin, Content-Type")
+        # 禁止缓存: 之前没发这些头, 浏览器按启发式缓存 index.html,
+        # 改完文件刷新还是旧页面 (踩过), 务必保留.
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -187,7 +247,6 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
-        qs = urllib.parse.parse_qs(parsed.query)
 
         if path.startswith("/api/") and not self._pin_ok():
             self._send(403, json.dumps({"error": "需要访问 PIN: 请在页面填写 NAS 上设置的 VIEWER_PIN"}))
@@ -204,8 +263,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/models":
             # 透传官方 Go 模型列表, 无需鉴权, 失败不致命
             try:
-                req = urllib.request.Request("https://opencode.ai/zen/go/v1/models",
-                                             headers={"User-Agent": "go-usage-viewer/1.0"})
+                req = urllib.request.Request(ZEN_URL + "/go/v1/models",
+                                             headers={"User-Agent": "go-usage-viewer/2.0"})
                 with urllib.request.urlopen(req, timeout=30) as resp:
                     self._send(200, resp.read())
             except Exception as e:  # noqa: BLE001
@@ -216,71 +275,64 @@ class Handler(BaseHTTPRequestHandler):
             if not api_key:
                 self._send(401, json.dumps({"error": "缺少 Key: 请在页面填写 Service Account Key (oc_sk_...), 或在服务端设置 CONSOLE_API_KEY"}))
                 return
-            user_id = qs.get("user_id", [None])[0]
             try:
-                today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
-                per30, ex30 = aggregate(fetch_v2_csv(api_key, "30d", user_id), today)
-                per7, _ex7 = aggregate(fetch_v2_csv(api_key, "7d", user_id), today)
+                limits = load_limits()
+                rows, unknown, local_pct = build_rows(fetch_usage_models(api_key),
+                                                      limits.get("models") or [])
                 try:
-                    zen = fetch_zen_usage(api_key)
-                except Exception:
-                    zen = None  # 总体条拿不到不影响表格
-                pricebook = {norm_model(m["id"]): m.get("price") for m in load_limits()["models"]}
+                    meters = fetch_go_status(api_key)   # 首选: 精确到分的金额
+                except Exception:  # noqa: BLE001
+                    meters = None
                 try:
-                    live = fetch_go_limits(api_key)
-                    models = [{"id": mid, "display": info["display"],
-                               "monthly_limit_usd": info["monthly_limit"],
-                               "price": pricebook.get(mid), "note": "live"}
-                              for mid, info in live.items()]
-                    limits_source = "live go/limits"
-                except Exception:
-                    models = load_limits()["models"]
-                    limits_source = "local fallback"
-                prices = {norm_model(m["id"]): m.get("price") for m in models}
-                rows = []
-                for m in models:
-                    mid = norm_model(m["id"])
-                    a30 = per30.get(mid, _new_agg())
-                    a7 = per7.get(mid, _new_agg())
-                    # v2 cost 已是 Go 定价; token×单价仅作兜底, 取较大者.
-                    # 今日切片取 30d 行里的当日 UTC 累计 (7d 同天, 取 30d 即可).
-                    s30 = max(a30.get("billable_usd", 0), go_priced(a30, prices.get(mid)))
-                    s7 = max(a7.get("billable_usd", 0), go_priced(a7, prices.get(mid)))
-                    sday = a30.get("today_cost", 0)
-                    raw_limit = m.get("monthly_limit_usd")
-                    unlimited = raw_limit is None
-                    limit = None if unlimited else float(raw_limit)
-                    rows.append({
-                        "id": m["id"], "display": m.get("display", m["id"]),
-                        "unlimited": unlimited,
-                        "monthly_limit": limit,
-                        "weekly_limit": None if unlimited else round(limit * 0.5, 4),
-                        "five_h_limit": None if unlimited else round(limit * 0.2, 4),
-                        "spent_30d": round(s30, 4),
-                        "spent_7d": round(s7, 4),
-                        "spent_today": round(sday, 4),
-                        "remaining_month": None if unlimited else round(limit - s30, 4),
-                        "remaining_pct": None if unlimited else round(max(0, (limit - s30) / limit * 100), 1),
-                        "note": m.get("note", ""),
-                        "tok_in_30d": int(a30.get("input_tokens", 0)),
-                        "tok_out_30d": int(a30.get("output_tokens", 0)),
-                        "tok_cache_30d": int(a30.get("cache_read_tokens", 0) + a30.get("cache_write_tokens", 0)),
-                        "tok_total_30d": int(a30.get("input_tokens", 0) + a30.get("output_tokens", 0) + a30.get("cache_read_tokens", 0) + a30.get("cache_write_tokens", 0)),
-                        "detail_30d": per30.get(mid),
-                    })
-                # 官方限额表之外的模型 (有花费但无 suerte限额): 追加展示, 方便核对 provider 映射
-                known = {norm_model(m["id"]) for m in models}
-                extras = []
-                _all = dict(per30)
-                _all.update(ex30)
-                for mid, agg in _all.items():
-                    if mid not in known and agg.get("records", 0) > 0:
-                        extras.append({"id": mid, "billable_30d": round(agg["billable_usd"], 4),
-                                       "records": agg["records"], "by_billing": agg["by_billing"],
-                                       "by_provider": agg.get("by_provider", {})})
-                self._send(200, json.dumps({"rows": rows, "unknown_models": extras,
-                                            "zen": zen,
-                                            "limits_source": limits_source, "warn": "v2按UTC天汇总(含今日),数据可滞后数小时;7d≈周,30d≈月,今日≈5h窗口参考"}))
+                    zen = fetch_zen_usage(api_key)      # 兜底: 只有取整百分比
+                except Exception:  # noqa: BLE001
+                    zen = None
+
+                # 池子大小: 接口给的真实限额 > GO_LIMITS.json > 内置兜底
+                pool = limits.get("pool") or DEFAULT_POOL
+                if meters:
+                    got = {k: (meters.get(k) or {}).get("limit_usd")
+                           for k in ("five_hour", "week", "month")}
+                    if all(got.values()):
+                        pool = {"five_h": got["five_hour"], "week": got["week"],
+                                "period": got["month"]}
+
+                # 自检: 逐模型 quota_pct 之和应当约等于官方付费周期用量。
+                # 这个对账做不到精确 —— 限额中途被调整过、分档定价、峰谷价
+                # 都会造成几个 pp 的偏差, 所以只分档提示, 不下"表已过期"的定论。
+                reconcile = None
+                month = (meters or {}).get("month") or {}
+                if month.get("pct") is not None:
+                    official_pct, official_usd = month["pct"], month["used_usd"]
+                else:
+                    pct = ((zen or {}).get("monthly") or {}).get("percent")
+                    official_pct = None if pct is None else float(pct)
+                    official_usd = None
+                if official_pct is not None:
+                    delta = local_pct - official_pct
+                    level = ("match" if abs(delta) <= 3
+                             else "minor" if abs(delta) <= 10 else "stale")
+                    reconcile = {"local_pct": round(local_pct, 1),
+                                 "official_pct": round(official_pct, 1),
+                                 "delta_pp": round(delta, 1),
+                                 "level": level}
+                    if official_usd is not None and pool.get("period"):
+                        reconcile["local_usd"] = round(local_pct / 100.0 * float(pool["period"]), 2)
+                        reconcile["official_usd"] = round(float(official_usd), 2)
+
+                self._send(200, json.dumps({
+                    "rows": rows,
+                    "unknown_models": unknown,
+                    "meters": meters,
+                    "zen": zen,
+                    "reconcile": reconcile,
+                    "pool": pool,
+                    "limits_synced_at": limits.get("synced_at"),
+                    "build": BUILD,
+                    "started_at": STARTED_AT,
+                    "warn": "官方三窗口按「单模型限额加权」计算, 不是美元直加。"
+                            "表格的「占额度 %」逐项相加 ≈ 官方付费周期用量, 花费列仅供参考、无额度含义。",
+                }))
             except RuntimeError as e:
                 self._send(502, json.dumps({"error": str(e)}))
             except Exception as e:  # noqa: BLE001
@@ -292,11 +344,30 @@ class Handler(BaseHTTPRequestHandler):
         pass  # 保持控制台干净
 
 
+def _port_taken(host, port):
+    probe = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
+    with socket.socket() as s:
+        s.settimeout(0.5)
+        return s.connect_ex((probe, port)) == 0
+
+
 if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", str(DEFAULT_PORT))))
     ap.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"))
     args = ap.parse_args()
-    print(f"Go 用量看板运行中: http://{args.host}:{args.port}", flush=True)
+
+    # 端口已被占用时直接退出: HTTPServer 默认 allow_reuse_address, 在 Windows 上
+    # 第二个实例能静默绑上同一端口, 结果是旧进程继续应答, 改动看起来没生效。
+    if _port_taken(args.host, args.port):
+        raise SystemExit(
+            "端口 " + str(args.port) + " 已被占用 —— 多半是上一份 server.py 还在跑(旧代码), "
+            "改了 server.py 也不会生效。\n先结束旧进程再启动:\n"
+            '  Get-CimInstance Win32_Process -Filter "Name=\'python.exe\'" | '
+            'Where-Object { $_.CommandLine -match "server.py" } | '
+            'ForEach-Object { Stop-Process -Id $_.ProcessId -Force }')
+
+    print(f"Go 用量看板运行中: http://{args.host}:{args.port}"
+          f"  (build {BUILD}, pid {os.getpid()}, 启动 {STARTED_AT})", flush=True)
     HTTPServer((args.host, args.port), Handler).serve_forever()

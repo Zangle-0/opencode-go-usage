@@ -9,7 +9,7 @@
   --bg:#f4f6f8; --card:#fff; --ink:#1c2530; --muted:#6b7a8d;
   --line:#e6ebf0; --accent:#0ea47e; --accent-d:#0b7d60;
   --warn:#b26a00; --warn-bg:#fff7e8; --bad:#d64545; --bad-bg:#fff1f1;
-  --radius:14px;
+  --info:#1d4ed8; --radius:14px;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);
@@ -18,14 +18,17 @@ body{margin:0;background:var(--bg);color:var(--ink);
 .hero{background:linear-gradient(135deg,#0c2b26,#0ea47e 70%,#22c55e);
   color:#fff;border-radius:20px;padding:26px 28px;box-shadow:0 12px 30px rgba(14,164,126,.25)}
 .hero h1{margin:0;font-size:22px;letter-spacing:.5px}
-.hero p{margin:8px 0 0;opacity:.85;font-size:13px}
+.hero p{margin:8px 0 0;opacity:.9;font-size:13px;line-height:1.6}
 .hero a{color:#fff}
+.hero code{background:rgba(255,255,255,.18);padding:1px 6px;border-radius:5px;font-size:12.5px}
+
 .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:16px 0}
 .stat{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
   padding:14px 16px;box-shadow:0 2px 8px rgba(20,40,60,.05)}
 .stat .k{font-size:12px;color:var(--muted)}
-.stat .v{font-size:22px;font-weight:700;margin-top:4px}
-.stat .s{font-size:12px;color:var(--muted);margin-top:2px}
+.stat .v{font-size:20px;font-weight:700;margin-top:4px;line-height:1.25}
+.stat .s{font-size:12px;color:var(--muted);margin-top:3px}
+
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
   box-shadow:0 2px 10px rgba(20,40,60,.06);overflow:hidden}
 .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
@@ -40,57 +43,96 @@ button{padding:9px 16px;font-size:14px;border-radius:10px;border:1px solid trans
 #save{background:#eef4f1;color:var(--accent-d);font-weight:600}
 .ghost{background:#fff;border-color:var(--line);color:var(--ink)}
 .chk{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
-#warn{margin:0;padding:10px 16px;font-size:12.5px;color:var(--warn);background:var(--warn-bg);border-bottom:1px solid #f0e2c4}
-#status{margin:0;padding:10px 16px;font-size:12.5px;color:var(--muted);border-bottom:1px solid var(--line)}
+#note{padding:11px 16px;font-size:12.5px;color:var(--ink);background:#f2f7fd;border-bottom:1px solid #dde8f5;line-height:1.6}
+#status{padding:10px 16px;font-size:12.5px;color:var(--muted);border-bottom:1px solid var(--line)}
+#note code,#status code{background:#e8eef6;padding:1px 5px;border-radius:4px;font-size:12px}
 .tablewrap{overflow-x:auto}
-table{border-collapse:separate;border-spacing:0;width:100%;font-size:13.5px;min-width:1250px}
+table{border-collapse:separate;border-spacing:0;width:100%;font-size:13.5px;min-width:1100px}
 thead th{position:sticky;top:0;background:#f8fafb;z-index:1;text-align:right;
   padding:10px 12px;color:var(--muted);font-weight:600;border-bottom:1px solid var(--line);white-space:nowrap}
 thead th:nth-child(1),tbody td:nth-child(1){text-align:left}
 tbody td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
 tbody tr:hover td{background:#f6fbf9}
-tr.low td{background:var(--bad-bg)}
+tr.hot td{background:var(--bad-bg)}
+tr.hot:hover td{background:#ffe9e9}
 .model{display:flex;gap:10px;align-items:center}
 .dot{width:10px;height:10px;border-radius:50%;background:var(--accent);flex:none}
 .model b{display:block;font-size:14px}
-.model small{color:var(--muted);font-family:ui-monospace,Consolas,monospace}
+.model small{color:var(--muted);font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
 .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700;background:#e9f7f1;color:var(--accent-d)}
-tr.low .badge{background:#ffe1e1;color:var(--bad)}
-.bar{height:8px;background:#edf1f4;border-radius:99px;overflow:hidden;min-width:140px}
+.badge.tier{background:#eef2f7;color:#41556b;font-family:ui-monospace,Consolas,monospace}
+.badge.bad{background:#ffe1e1;color:var(--bad)}
+.badge.warn{background:#fff1d6;color:var(--warn)}
+.badge.free{background:#eef2f7;color:#6b7a8d}
+.bar{height:8px;background:#edf1f4;border-radius:99px;overflow:hidden;min-width:110px}
 .bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),#22c55e);border-radius:99px;transition:width .4s}
-tr.low .bar>i{background:linear-gradient(90deg,#f59e0b,var(--bad))}
+tr.hot .bar>i{background:linear-gradient(90deg,#f59e0b,var(--bad))}
 .copy{padding:5px 10px;font-size:12px}
+.info{color:var(--muted);cursor:help;font-size:12px;font-weight:400}
+.info.stale{color:var(--warn)}
+.num{font-variant-numeric:tabular-nums;font-family:ui-monospace,Consolas,monospace}
+.foot{color:var(--muted);font-size:12px;text-align:center;margin-top:14px}
+
+/* 官方三窗口 */
 .zenbar{display:flex;gap:12px;margin:16px 0 0}
-.zen{flex:1;background:linear-gradient(135deg,#10233f,#1d4ed8 70%,#0ea5e9);color:#fff;border-radius:var(--radius);padding:12px 16px;box-shadow:0 2px 8px rgba(20,40,60,.15)}
-.zen .k{font-size:12px;opacity:.8}
-.zen .v{font-size:20px;font-weight:700;margin-top:2px}
+.zen{flex:1;background:linear-gradient(135deg,#10233f,#1d4ed8 70%,#0ea5e9);color:#fff;border-radius:var(--radius);padding:13px 16px;box-shadow:0 2px 8px rgba(20,40,60,.15)}
+.zen .k{font-size:12px;opacity:.85;display:flex;align-items:center;gap:8px}
+.zen .k em{font-style:normal;background:rgba(255,255,255,.2);border-radius:999px;padding:1px 7px;font-size:11px}
+.zen .v{font-size:22px;font-weight:700;margin-top:4px}
 .zen .s{font-size:12px;opacity:.85;margin-top:2px}
 .zen .zbar{height:6px;background:rgba(255,255,255,.25);border-radius:99px;overflow:hidden;margin-top:8px}
 .zen .zbar>i{display:block;height:100%;background:#fff;border-radius:99px}
-.num{font-variant-numeric:tabular-nums;font-family:ui-monospace,Consolas,monospace}
-.foot{color:var(--muted);font-size:12px;text-align:center;margin-top:14px}
-@media(max-width:800px){.stats{grid-template-columns:repeat(2,1fr)}.zenbar{flex-direction:column}input[type=password]{min-width:0;width:100%}}
+
+/* 对账条 */
+.rec{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;margin:12px 0 0;
+  background:var(--card);border:1px solid var(--line);border-left:4px solid var(--accent);
+  border-radius:10px;padding:11px 16px;font-size:13px;box-shadow:0 2px 8px rgba(20,40,60,.05)}
+.rec.stale{border-left-color:var(--bad);background:var(--bad-bg)}
+.rec.minor{border-left-color:var(--warn);background:var(--warn-bg)}
+.rec b{font-variant-numeric:tabular-nums;font-family:ui-monospace,Consolas,monospace}
+.rec .sep{color:var(--line)}
+.rec .verdict{font-weight:600}
+.rec.stale .verdict{color:var(--bad)}
+.rec.minor .verdict{color:var(--warn)}
+
+@media(max-width:900px){.stats{grid-template-columns:repeat(2,1fr)}.zenbar{flex-direction:column}
+  input[type=password]{min-width:0;width:100%}}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="hero">
     <h1>OpenCode Go 用量看板</h1>
-    <p>总量 / 已用 / 剩余一目了然，按剩余切换模型 · 数据来自本地代理（<a href="https://opencode.ai/console" target="_blank">Console</a>），Key 只存本机</p>
+    <p><b>额度不是钱。</b>官方三个窗口按「单模型限额加权」计算 —— 在 $15 上限的模型上花 $1，消耗的额度相当于在 $60 上限的模型上花 $4。
+      所以「总共花了多少钱」和「额度用了百分之几」永远对不上。下方表格的 <code>占额度 %</code> 逐项相加，就等于官方付费周期百分比。</p>
   </div>
 
   <div class="zenbar" id="zenbar" style="display:none">
-    <div class="zen"><div class="k">官方 · 滚动窗口</div><div class="v num" id="zRoll">–</div><div class="s" id="zRollR"></div><div class="zbar"><i id="zRollB"></i></div></div>
-    <div class="zen"><div class="k">官方 · 周</div><div class="v num" id="zWeek">–</div><div class="s" id="zWeekR"></div><div class="zbar"><i id="zWeekB"></i></div></div>
-    <div class="zen"><div class="k">官方 · 月</div><div class="v num" id="zMon">–</div><div class="s" id="zMonR"></div><div class="zbar"><i id="zMonB"></i></div></div>
+    <div class="zen">
+      <div class="k">官方 · 滚动 5 小时 <em id="zPool1">池 $–</em></div>
+      <div class="v num" id="zRoll">–</div><div class="s" id="zRollR"></div>
+      <div class="zbar"><i id="zRollB"></i></div>
+    </div>
+    <div class="zen">
+      <div class="k">官方 · UTC 日历周 <em id="zPool2">池 $–</em></div>
+      <div class="v num" id="zWeek">–</div><div class="s" id="zWeekR"></div>
+      <div class="zbar"><i id="zWeekB"></i></div>
+    </div>
+    <div class="zen">
+      <div class="k">官方 · 付费周期 <em id="zPool3">池 $–</em></div>
+      <div class="v num" id="zMon">–</div><div class="s" id="zMonR"></div>
+      <div class="zbar"><i id="zMonB"></i></div>
+    </div>
   </div>
 
+  <div class="rec" id="rec" style="display:none"></div>
+
   <div class="stats">
-    <div class="stat"><div class="k">月总量（全部模型）</div><div class="v num" id="stTotal">$–</div><div class="s">官方 Go 月限额合计</div></div>
-    <div class="stat"><div class="k">30d 已用（估算）</div><div class="v num" id="stSpent">$–</div><div class="s">max(官方计费, token×单价)</div></div>
-    <div class="stat"><div class="k">月剩余（估算）</div><div class="v num" id="stRemain">$–</div><div class="s">总量 − 已用</div></div>
-    <div class="stat"><div class="k">低余量模型（&lt;20%）</div><div class="v num" id="stLow">–</div><div class="s" id="stCount">共 – 个模型</div></div>
-    <div class="stat"><div class="k">30d Token 总计</div><div class="v num" id="stTok">–</div><div class="s">输入+输出+缓存</div></div>
+    <div class="stat"><div class="k">最吃额度的模型</div><div class="v" id="stTop">–</div><div class="s" id="stTopS">占额度 % 最高者</div></div>
+    <div class="stat"><div class="k">接近 / 触顶</div><div class="v" id="stFlag">–</div><div class="s">≥80% 的模型数 ｜ 已 100%</div></div>
+    <div class="stat"><div class="k">期间花费合计</div><div class="v num" id="stSpent">$–</div><div class="s">跨模型相加 · 无额度含义</div></div>
+    <div class="stat"><div class="k">Token 总计</div><div class="v num" id="stTok">–</div><div class="s">输入+输出+缓存</div></div>
+    <div class="stat"><div class="k">付费周期重置</div><div class="v num" id="stReset">–</div><div class="s" id="stResetS">–</div></div>
   </div>
 
   <div class="card">
@@ -100,67 +142,186 @@ tr.low .bar>i{background:linear-gradient(90deg,#f59e0b,var(--bad))}
       <button id="load">查询</button>
       <button id="save" class="ghost">记住 Key</button>
       <select id="sort">
-        <option value="pct">按剩余 % 排序</option>
-        <option value="rem">按剩余 $ 排序</option>
-        <option value="spent">按已用排序</option>
+        <option value="quota">按占额度 % 排序</option>
+        <option value="spent">按花费排序</option>
         <option value="tok">按 Token 排序</option>
+        <option value="name">按名称排序</option>
       </select>
       <input id="q" type="text" placeholder="搜索模型">
-      <label class="chk"><input type="checkbox" id="hide0"> 隐藏 30d 无用量</label>
+      <label class="chk"><input type="checkbox" id="hide0" checked> 隐藏零用量模型</label>
     </div>
-    <div id="warn">口径：总量 = 官方 Go 限额（live，不可用时回退本地表）；已用 = v2 按 UTC 天汇总（排除非 Go provider 行）；剩余 = 总量 − 30d 已用。7d ≈ 周，30d ≈ 月，今日（UTC）≈ 5h 窗口。v2 数据可滞后数小时，请以 Console 为准。</div>
-    <p id="status">填写 Key 后点查询</p>
+    <div id="note">口径：<b>占额度 %</b> = 该模型期间花费 ÷ 该模型月限额，逐项相加 ≈ 官方付费周期用量。
+      顶部三窗口是官方精确值（<code>/console/api/go/status</code>，精确到分），<b>花费</b>同样来自官方计费
+      （<code>/console/api/usage/models</code>）—— 但花费仅供参考，不能跨模型相加成额度。
+      模型名后的 <code>ⓘ</code> 是备注（悬停查看）：<b style="color:#b26a00">琥珀色</b>表示该限额已不在官方文档表中、
+      可能过期；灰色表示纯信息，影响不到上面的数字。</div>
+    <div id="status">填写 Key 后点查询</div>
     <div class="tablewrap">
       <table>
         <thead><tr>
-          <th>模型</th><th>月总量 $</th><th>30d 已用 $</th><th>月剩余 $ / %</th>
-          <th>用量</th><th>30d Token 明细</th><th>30d Token 总计</th><th>7d 已用 ≈ 周</th><th>今日已用 / 5h线</th><th>切换</th>
+          <th>模型</th><th>限额 $</th><th>花费 $</th><th>占额度 %</th><th>用量</th>
+          <th>Token 明细</th><th>Token 总计</th><th>切换</th>
         </tr></thead>
         <tbody id="tb"></tbody>
       </table>
     </div>
   </div>
-  <div class="foot">本地运行 · <span id="ts"></span></div>
+  <div class="foot">本地运行 · <span id="ts"></span> · 服务端 <span id="build">–</span></div>
 </div>
 
 <script>
+// 显式取元素: 不要依赖裸全局, id="status" 会撞上浏览器内置的 window.status
+const $id = id => document.getElementById(id);
+const elKey = $id('key'), elPin = $id('pin'), elSave = $id('save'), elLoad = $id('load');
+const elQ = $id('q'), elSort = $id('sort'), elHide0 = $id('hide0');
+const elStatus = $id('status'), elTb = $id('tb'), elTs = $id('ts'), elRec = $id('rec');
+const elBuild = $id('build');
+const elZenbar = $id('zenbar');
+
 let ALL = [];
-key.value = localStorage.getItem('go_key') || '';
-pin.value = localStorage.getItem('go_pin') || '';
-save.onclick = () => { localStorage.setItem('go_key', key.value); localStorage.setItem('go_pin', pin.value); status.textContent = '已记住在本地浏览器'; };
-q.oninput = render; sort.onchange = render; hide0.onchange = render;
+elKey.value = localStorage.getItem('go_key') || '';
+elPin.value = localStorage.getItem('go_pin') || '';
+elSave.onclick = () => {
+  localStorage.setItem('go_key', elKey.value);
+  localStorage.setItem('go_pin', elPin.value);
+  elStatus.textContent = '已记住在本地浏览器';
+};
+elQ.oninput = render; elSort.onchange = render; elHide0.onchange = render;
 
 async function query(){
-  if(location.protocol === 'file:'){ status.textContent = '请用 http://localhost:8765/ 打开，不要双击 index.html（file:// 下 /api 请求发不出去）'; return; }
-  if(!key.value){ status.textContent = '请先填写 Key'; return; }
-  load.disabled = true; load.textContent = '查询中…'; status.textContent = '正在拉取 v2 30d/7d + 官方限额…';
+  if(location.protocol === 'file:'){
+    elStatus.textContent = '请用 http://localhost:8765/ 打开，不要双击 index.html（file:// 下 /api 请求发不出去）';
+    return;
+  }
+  if(!elKey.value){ elStatus.textContent = '请先填写 Key'; return; }
+  elLoad.disabled = true; elLoad.textContent = '查询中…';
+  elStatus.textContent = '正在拉取官方 per-model 用量 + 三窗口百分比…';
   try{
-    const r = await fetch('/api/usage?scope=organization', { headers: { 'X-Api-Key': key.value, 'X-Access-Pin': pin.value } });
+    const r = await fetch('/api/usage', { headers: { 'X-Api-Key': elKey.value, 'X-Access-Pin': elPin.value } });
     const j = await r.json();
-    if(j.error){ status.textContent = '失败：' + j.error; return; }
-    ALL = j.rows; window._warn = j.warn; window._extra = j.unknown_models || [];
+    if(j.error){ elStatus.textContent = '失败：' + j.error; return; }
+    ALL = j.rows || [];
     render();
-    const total = ALL.filter(x => !x.unlimited).reduce((a,x) => a + x.monthly_limit, 0);
-    const spent = ALL.reduce((a,x) => a + x.spent_30d, 0);
-    const low = ALL.filter(x => !x.unlimited && x.remaining_pct < 20).length;
-    stTotal.textContent = '$' + total.toFixed(2);
-    stSpent.textContent = '$' + spent.toFixed(2);
-    stRemain.textContent = '$' + (total - spent).toFixed(2);
-    stLow.textContent = low;
-    stTok.textContent = fmtTok(ALL.reduce((a,x) => a + (x.tok_total_30d || 0), 0));
-    stCount.textContent = '共 ' + ALL.length + ' 个模型';
-    let extra = window._extra.length ? '｜表外有花费模型：' + window._extra.map(u => u.id + ' $' + u.billable_30d).join('，') : '';
-    status.textContent = (j.limits_source === 'live go/limits' ? '' : '限额为本地fallback；') + window._warn + extra;
-    const z = j.zen;
-    if(z && z.rolling){
-      zenbar.style.display = 'flex';
-      zRoll.textContent = z.rolling.percent + '%'; zRollB.style.width = Math.min(100, z.rolling.percent) + '%'; zRollR.textContent = fmtReset(z.rolling.resetsAt);
-      zWeek.textContent = z.weekly.percent + '%'; zWeekB.style.width = Math.min(100, z.weekly.percent) + '%'; zWeekR.textContent = fmtReset(z.weekly.resetsAt);
-      zMon.textContent = z.monthly.percent + '%'; zMonB.style.width = Math.min(100, z.monthly.percent) + '%'; zMonR.textContent = fmtReset(z.monthly.resetsAt);
-    } else { zenbar.style.display = 'none'; }
-    ts.textContent = '更新于 ' + new Date().toLocaleString();
-  }catch(e){ status.textContent = '请求失败：' + e + '。确认 server.py 还在运行，且页面地址是 http://localhost:8765/（F12 看明细）'; }
-  finally{ load.disabled = false; load.textContent = '查询'; }
+    summarize(j);
+    elStatus.textContent = (j.warn || '')
+      + (j.limits_synced_at ? '｜限额表同步于 ' + j.limits_synced_at : '')
+      + ((j.unknown_models && j.unknown_models.length)
+          ? '｜表外有花费模型：' + j.unknown_models.map(u => u.id + ' $' + (u.spent_usd || 0).toFixed(2)).join('，') : '');
+    elTs.textContent = '更新于 ' + new Date().toLocaleString();
+    elBuild.textContent = j.build
+      ? ('build ' + j.build + (j.started_at ? '（' + j.started_at + ' 启动）' : ''))
+      : 'build 未知（服务端版本较旧，需要重启）';
+  }catch(e){
+    elStatus.textContent = '请求失败：' + e + '。确认 server.py 还在运行，且页面地址是 http://localhost:8765/（F12 看明细）';
+  }finally{
+    elLoad.disabled = false; elLoad.textContent = '查询';
+  }
+}
+
+function summarize(j){
+  const limited = ALL.filter(x => !x.unlimited);
+  const spent = ALL.reduce((a,x) => a + (x.spent_usd || 0), 0);
+
+  // 最吃额度的模型: 就是官方百分比里贡献最大的那一项
+  const top = limited.slice().sort((a,b) => (b.quota_pct||0) - (a.quota_pct||0))[0];
+  if(top){
+    $id('stTop').textContent = top.display;
+    $id('stTopS').textContent = '占额度 ' + top.quota_pct + '%｜花 $' + (top.spent_usd || 0).toFixed(2)
+      + ' / 限额 $' + top.monthly_limit;
+  }
+  const near = limited.filter(x => (x.quota_pct||0) >= 80).length;
+  const full = limited.filter(x => (x.quota_pct||0) >= 100).length;
+  $id('stFlag').textContent = near + ' / ' + full;
+
+  $id('stSpent').textContent = '$' + spent.toFixed(2);
+  $id('stTok').textContent = fmtTok(ALL.reduce((a,x) => a + (x.tok_total || 0), 0));
+
+  // 对账条: 本地折算 vs 官方。有 meters 时用美元, 否则退回百分比。
+  // 分档说明而不是二值判断 —— 限额中途调整过/分档定价都会造成几个 pp 的差。
+  const rec = j.reconcile;
+  if(rec){
+    const lv = rec.level || 'match';
+    elRec.className = 'rec' + (lv === 'stale' ? ' stale' : (lv === 'minor' ? ' minor' : ''));
+    elRec.style.display = 'flex';
+    const verdict = lv === 'match'
+      ? '✓ 一致'
+      : (lv === 'minor'
+          ? '≈ 轻微差异，常见于限额近期调整 / 分档定价 / 峰谷价，不一定有问题'
+          : '⚠️ 差异较大，建议核对 GO_LIMITS.json 的限额');
+    const bits = [];
+    if(rec.local_usd != null && rec.official_usd != null){
+      const d = rec.local_usd - rec.official_usd;
+      bits.push('本地折算 <b>$' + rec.local_usd.toFixed(2) + '</b>（' + rec.local_pct + '%）');
+      bits.push('官方 <b>$' + rec.official_usd.toFixed(2) + '</b>（' + rec.official_pct + '%）');
+      bits.push('差 <b>' + (d >= 0 ? '+' : '−') + '$' + Math.abs(d).toFixed(2)
+        + ' / ' + (rec.delta_pp > 0 ? '+' : '') + rec.delta_pp + 'pp</b>');
+    } else {
+      bits.push('本地逐模型相加 <b>' + rec.local_pct + '%</b>');
+      bits.push('官方 <b>' + rec.official_pct + '%</b>');
+      bits.push('差 <b>' + (rec.delta_pp > 0 ? '+' : '') + rec.delta_pp + 'pp</b>');
+    }
+    elRec.innerHTML = bits.map(b => '<span>' + b + '</span>').join('<span class="sep">｜</span>')
+      + '<span class="sep">｜</span><span class="verdict">' + verdict + '</span>';
+  } else {
+    elRec.style.display = 'none';
+  }
+
+  // 官方三窗口: 优先 meters (接口给的精确金额), 回退 zen (只有取整百分比)
+  const mt = j.meters || {}, p = j.pool || {}, z = j.zen || {};
+  if(j.meters || (z && z.rolling)){
+    elZenbar.style.display = 'flex';
+    $id('zPool1').textContent = '池 $' + fmtMoney(p.five_h);
+    $id('zPool2').textContent = '池 $' + fmtMoney(p.week);
+    $id('zPool3').textContent = '池 $' + fmtMoney(p.period);
+    setWindow('zRoll', 'zRollR', 'zRollB', mt.five_hour, z.rolling);
+    setWindow('zWeek', 'zWeekR', 'zWeekB', mt.week, z.weekly);
+    setWindow('zMon',  'zMonR',  'zMonB',  mt.month, z.monthly);
+
+    const mo = mt.month || {};
+    const reset = mo.resets_at || (z.monthly && z.monthly.resetsAt);
+    $id('stReset').textContent = fmtShort(reset);
+    const per = mt.period || {};
+    $id('stResetS').textContent = (per.starts_at && per.ends_at)
+      ? fmtDate(per.starts_at) + ' – ' + fmtDate(per.ends_at)
+      : (reset ? new Date(reset).toLocaleString() : '–');
+  } else {
+    elZenbar.style.display = 'none';
+    $id('stReset').textContent = '–'; $id('stResetS').textContent = '–';
+  }
+}
+
+// meter 是 /api/go/status 的精确金额; fallback 是 zen 的取整百分比
+function setWindow(vId, sId, bId, meter, fallback){
+  const v = $id(vId), s = $id(sId), b = $id(bId);
+  if(meter && meter.limit_usd){
+    v.textContent = '$' + meter.used_usd.toFixed(2);
+    s.textContent = meter.pct.toFixed(1) + '% ｜ 剩 $' + meter.remaining_usd.toFixed(2)
+      + ' ｜ ' + fmtReset(meter.resets_at);
+    b.style.width = Math.min(100, meter.pct) + '%';
+  } else if(fallback){
+    v.textContent = fallback.percent + '%';
+    s.textContent = fmtReset(fallback.resetsAt);
+    b.style.width = Math.min(100, fallback.percent) + '%';
+  } else {
+    v.textContent = '–'; s.textContent = ''; b.style.width = '0%';
+  }
+}
+
+function fmtMoney(n){
+  if(n == null) return '–';
+  const v = Number(n);
+  return Number.isInteger(v) ? String(v) : v.toFixed(2);
+}
+
+function fmtDate(iso){
+  const d = new Date(iso);
+  return isNaN(d) ? '–' : (d.getMonth() + 1) + '/' + d.getDate();
+}
+
+// note 会进 title 属性, 引号必须转义
+function esc(s){
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function fmtTok(n){
@@ -181,38 +342,63 @@ function fmtReset(iso){
   return mm + '分钟后重置';
 }
 
+function fmtShort(iso){
+  if(!iso) return '–';
+  const ms = new Date(iso).getTime() - Date.now();
+  if(!(ms > 0)) return '已重置';
+  const m = Math.floor(ms/60000), d = Math.floor(m/1440), h = Math.floor(m%1440/60);
+  return d > 0 ? d + '天' + h + '小时' : h + '小时' + (m%60) + '分';
+}
+
 function render(){
   let rows = [...ALL];
-  const qv = q.value.trim().toLowerCase();
-  if(qv) rows = rows.filter(x => (x.id + x.display).toLowerCase().includes(qv));
-  if(hide0.checked) rows = rows.filter(x => x.spent_30d > 0);
-  const s = sort.value;
-  const remPct = x => x.unlimited ? Infinity : x.remaining_pct;
-  const remUsd = x => x.unlimited ? Infinity : x.remaining_month;
-  rows.sort((a,b) => s === 'pct' ? remPct(a) - remPct(b) : s === 'rem' ? remUsd(a) - remUsd(b) : s === 'tok' ? (b.tok_total_30d||0) - (a.tok_total_30d||0) : b.spent_30d - a.spent_30d);
+  const qv = elQ.value.trim().toLowerCase();
+  if(qv) rows = rows.filter(x => (x.id + ' ' + x.display).toLowerCase().includes(qv));
+  if(elHide0.checked) rows = rows.filter(x => (x.spent_usd || 0) > 0);
+  const s = elSort.value;
+  rows.sort((a,b) => {
+    if(s === 'name') return a.display.localeCompare(b.display);
+    if(s === 'spent') return (b.spent_usd||0) - (a.spent_usd||0);
+    if(s === 'tok') return (b.tok_total||0) - (a.tok_total||0);
+    return (b.quota_pct||0) - (a.quota_pct||0);   // quota: 无限额自然沉底
+  });
   const colors = ['#0ea47e','#6366f1','#f59e0b','#ec4899','#14b8a6','#8b5cf6'];
-  tb.innerHTML = rows.map((x,i) => {
-    const pct = (!x.unlimited && x.monthly_limit) ? Math.min(100, x.spent_30d / x.monthly_limit * 100) : 0;
-    const low = (!x.unlimited && x.remaining_pct < 20) ? ' class="low"' : '';
+  elTb.innerHTML = rows.map((x,i) => {
+    const pct = x.quota_pct || 0;
+    const hot = !x.unlimited && pct >= 80;
     const dot = colors[i % colors.length];
-    const limCell = x.unlimited ? 'Unlimited' : x.monthly_limit;
-    const remCell = x.unlimited ? '<span class="badge">Unlimited</span>'
-      : `<span class="badge">${x.remaining_pct}%</span> <span class="num">$${x.remaining_month}</span>`;
-    const weekCell = x.unlimited ? '–' : `${x.spent_7d} / ${x.weekly_limit}`;
-    const dayCell = x.unlimited ? '–' : `${x.spent_today} / ${x.five_h_limit}`;
-    return `<tr${low}><td><div class="model"><span class="dot" style="background:${dot}"></span>`
-      + `<div><b>${x.display}</b><small>opencode-go/${x.id}</small></div></div></td>`
-      + `<td class="num">${limCell}</td><td class="num">${x.spent_30d}</td>`
-      + `<td>${remCell}</td>`
-      + `<td><div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div></td>`
-      + `<td class="num" title="输入 ${(x.tok_in_30d||0).toLocaleString()} / 输出 ${(x.tok_out_30d||0).toLocaleString()} / 缓存 ${(x.tok_cache_30d||0).toLocaleString()}">in ${fmtTok(x.tok_in_30d)} / out ${fmtTok(x.tok_out_30d)} / cache ${fmtTok(x.tok_cache_30d)}</td>`
-      + `<td class="num"><b>${fmtTok(x.tok_total_30d)}</b></td>`
-      + `<td class="num">${weekCell}</td>`
-      + `<td class="num">${dayCell}</td>`
-      + `<td><button class="ghost copy" onclick="navigator.clipboard.writeText('opencode-go/${x.id}');this.textContent='已复制';setTimeout(()=>this.textContent='复制',1200)">复制</button></td></tr>`;
-  }).join('') || '<tr><td colspan="10" style="text-align:center;color:#999">暂无数据，先点查询</td></tr>';
+    const tier = x.unlimited
+      ? '<span class="badge free">无限</span>'
+      : '<span class="badge tier">$' + x.monthly_limit + '</span>';
+    const pctCell = x.unlimited
+      ? '<span class="badge free">Unlimited</span>'
+      : '<span class="badge' + (pct >= 80 ? ' bad' : (pct >= 50 ? ' warn' : '')) + '">' + pct.toFixed(1) + '%</span>';
+    const warn = x.note
+      ? ' <span class="info' + (x.stale ? ' stale' : '') + '" title="' + esc(x.note) + '">ⓘ</span>'
+      : '';
+    return '<tr' + (hot ? ' class="hot"' : '') + '>'
+      + '<td><div class="model"><span class="dot" style="background:' + dot + '"></span>'
+      + '<div><b>' + x.display + warn + '</b><small>opencode-go/' + x.id + '</small></div></div></td>'
+      + '<td>' + tier + '</td>'
+      + '<td class="num">$' + (x.spent_usd || 0).toFixed(2) + '</td>'
+      + '<td>' + pctCell + '</td>'
+      + '<td><div class="bar"><i style="width:' + Math.min(100, pct).toFixed(1) + '%"></i></div></td>'
+      + '<td class="num" title="输入 ' + (x.tok_in||0).toLocaleString() + ' / 输出 ' + (x.tok_out||0).toLocaleString() + ' / 缓存 ' + (x.tok_cache||0).toLocaleString() + '">'
+      +   'in ' + fmtTok(x.tok_in) + ' / out ' + fmtTok(x.tok_out) + ' / cache ' + fmtTok(x.tok_cache) + '</td>'
+      + '<td class="num"><b>' + fmtTok(x.tok_total) + '</b></td>'
+      + '<td><button class="ghost copy" data-id="' + x.id + '">复制</button></td></tr>';
+  }).join('') || '<tr><td colspan="8" style="text-align:center;color:#999">暂无数据，先点查询</td></tr>';
 }
-load.onclick = query;
+
+elTb.addEventListener('click', e => {
+  const b = e.target.closest('button.copy');
+  if(!b) return;
+  navigator.clipboard.writeText('opencode-go/' + b.dataset.id);
+  b.textContent = '已复制';
+  setTimeout(() => { b.textContent = '复制'; }, 1200);
+});
+
+elLoad.onclick = query;
 render();
 </script>
 </body>
