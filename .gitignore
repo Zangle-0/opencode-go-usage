@@ -4,6 +4,9 @@ __pycache__/
 *.pyc
 *.log
 
+# 本机 agent 笔记（内部口径/排查记录，不对外发布）
+AGENTS.md
+
 # 一次性诊断/抓包产物（勿提交）
 _*.py
 _v2_*.csv
