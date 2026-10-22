@@ -45,6 +45,8 @@ button{padding:9px 16px;font-size:14px;border-radius:10px;border:1px solid trans
 .chk{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
 #note{padding:11px 16px;font-size:12.5px;color:var(--ink);background:#f2f7fd;border-bottom:1px solid #dde8f5;line-height:1.6}
 #status{padding:10px 16px;font-size:12.5px;color:var(--muted);border-bottom:1px solid var(--line)}
+#scope{padding:9px 16px;font-size:12.5px;color:var(--muted);background:#f8fafb;border-bottom:1px solid var(--line)}
+#scope.warn{background:var(--warn-bg);color:var(--warn);font-weight:600}
 #note code,#status code{background:#e8eef6;padding:1px 5px;border-radius:4px;font-size:12px}
 .tablewrap{overflow-x:auto}
 table{border-collapse:separate;border-spacing:0;width:100%;font-size:13.5px;min-width:1100px}
@@ -156,6 +158,7 @@ tr.hot .bar>i{background:linear-gradient(90deg,#f59e0b,var(--bad))}
       模型名后的 <code>ⓘ</code> 是备注（悬停查看）：<b style="color:#b26a00">琥珀色</b>表示该限额已不在官方文档表中、
       可能过期；灰色表示纯信息，影响不到上面的数字。</div>
     <div id="status">填写 Key 后点查询</div>
+    <div id="scope" style="display:none"></div>
     <div class="tablewrap">
       <table>
         <thead><tr>
@@ -175,7 +178,7 @@ const $id = id => document.getElementById(id);
 const elKey = $id('key'), elPin = $id('pin'), elSave = $id('save'), elLoad = $id('load');
 const elQ = $id('q'), elSort = $id('sort'), elHide0 = $id('hide0');
 const elStatus = $id('status'), elTb = $id('tb'), elTs = $id('ts'), elRec = $id('rec');
-const elBuild = $id('build');
+const elBuild = $id('build'), elScope = $id('scope');
 const elZenbar = $id('zenbar');
 
 let ALL = [];
@@ -196,6 +199,7 @@ async function query(){
   if(!elKey.value){ elStatus.textContent = '请先填写 Key'; return; }
   elLoad.disabled = true; elLoad.textContent = '查询中…';
   elStatus.textContent = '正在拉取官方 per-model 用量 + 三窗口百分比…';
+  elScope.style.display = 'none';
   try{
     const r = await fetch('/api/usage', { headers: { 'X-Api-Key': elKey.value, 'X-Access-Pin': elPin.value } });
     const j = await r.json();
@@ -218,9 +222,26 @@ async function query(){
   }
 }
 
+// 表格口径说明: 让"这份数字统计哪段时间"变成页面上看得见的事实。
+// server 通过 usage_since 告诉我们实际传给官方的起点; 为 null 说明 /api/go/status
+// 挂了、已降级为不带 since 的查询 —— 续订后会把上个周期的用量算进来, 必须提醒。
+function setScope(j){
+  const per = (j.meters && j.meters.period) || {};
+  const ok = !!j.usage_since;
+  elScope.className = ok ? '' : 'warn';
+  elScope.textContent = ok
+    ? '表格口径：本付费周期（' + fmtDate(j.usage_since) + ' 起'
+      + (per.ends_at ? '，' + fmtDate(per.ends_at) + ' 止' : '') + '）内的 per-model 用量；'
+      + '顶部三窗口是账号级官方值。'
+    : '⚠️ 表格口径不完整：拿不到官方付费周期起止（/api/go/status 失败），已退回"不带 since"的查询 —— '
+      + '跨周期时花费与「占额度 %」都会虚高，对账条的结论不可信。';
+  elScope.style.display = 'block';
+}
+
 function summarize(j){
   const limited = ALL.filter(x => !x.unlimited);
   const spent = ALL.reduce((a,x) => a + (x.spent_usd || 0), 0);
+  setScope(j);
 
   // 最吃额度的模型: 就是官方百分比里贡献最大的那一项
   const top = limited.slice().sort((a,b) => (b.quota_pct||0) - (a.quota_pct||0))[0];
@@ -247,7 +268,9 @@ function summarize(j){
       ? '✓ 一致'
       : (lv === 'minor'
           ? '≈ 轻微差异，常见于限额近期调整 / 分档定价 / 峰谷价，不一定有问题'
-          : '⚠️ 差异较大，建议核对 GO_LIMITS.json 的限额');
+          : (j.usage_since
+              ? '⚠️ 差异较大，建议核对 GO_LIMITS.json 的限额'
+              : '⚠️ 差异较大：表格未按付费周期过滤（拿不到周期起止），先看顶部三窗口'));
     const bits = [];
     if(rec.local_usd != null && rec.official_usd != null){
       const d = rec.local_usd - rec.official_usd;

@@ -15,7 +15,11 @@
      官方周   = 周内 Σ * (period / week) * 100
      官方滚动 = 5h 内 Σ * (period / five_h) * 100
   所以"总共花了多少钱"和"额度用了百分之几"永远对不上 —— 前者没有额度含义.
+
+  表格的口径必须锚在付费周期: /api/usage/models 传 since=go/status 的 access.startsAt,
+  否则不传筛选参数会返回跨周期窗口, 续订后表格仍是上个月的数据 (2026-10-22 踩过).
 """
+import datetime
 import hashlib
 import json
 import os
@@ -85,6 +89,23 @@ def usd(micro):
         return 0.0
 
 
+def iso_z(s):
+    """把时间归一成官方 since 只认的形式: YYYY-MM-DDTHH:MM:SS(.mmm)?Z.
+
+    官方 schema 只接受带 Z 的 UTC, 带偏移的会 400, 所以这里统一转 UTC 并去掉毫秒.
+    无法解析就返回 None —— 调用方据此降级为"不带 since"的旧行为.
+    """
+    if not s:
+        return None
+    try:
+        dt = datetime.datetime.fromisoformat(str(s).strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    return dt.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _api_get(api_key, path, params, accept, base=None):
     """调 Console/Zen API, 返回文本. 失败时抛出带状态码的异常."""
     url = (base or CONSOLE_URL) + path + "?" + urllib.parse.urlencode(params)
@@ -101,16 +122,25 @@ def _api_get(api_key, path, params, accept, base=None):
         raise RuntimeError(f"官方接口 {e.code}: {body}")
 
 
-def fetch_usage_models(api_key, page_size=100):
+def fetch_usage_models(api_key, page_size=100, since=None):
     """官方 per-model 用量, 不分 provider 混在一起返回.
 
-    GET /console/api/usage/models —— 不传 range 即当前付费周期.
+    GET /console/api/usage/models —— 查询参数: range?(24h/7d/30d/all) / since?(ISO, 必须带 Z)
+    / page / pageSize / costOrder.
+
+    **不传筛选参数 ≠ 当前付费周期。** 2026-10-22 续订当天实测: 顶部 go/status 已归零
+    ($0.08), 这里不带 since 却仍返回上一周期用量 (Σ $39.41), 对账条于是误报
+    "限额表过期/差异较大"。所以必须显式传 since = 付费周期起点
+    (/api/go/status 的 access.startsAt), 表格才和官方三窗口同口径。
+
     必须翻页: pageSize 默认只有 10, 大账号会静默丢数据 (踩过).
     """
     items, page = [], 1
     while True:
-        data = json.loads(_api_get(api_key, "/api/usage/models",
-                                   {"pageSize": page_size, "page": page},
+        params = {"pageSize": page_size, "page": page}
+        if since:
+            params["since"] = since
+        data = json.loads(_api_get(api_key, "/api/usage/models", params,
                                    "application/json"))
         items.extend(data.get("items") or [])
         info = data.get("pageInfo") or {}
@@ -277,12 +307,16 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 limits = load_limits()
-                rows, unknown, local_pct = build_rows(fetch_usage_models(api_key),
-                                                      limits.get("models") or [])
+                # 先拿订阅状态: 付费周期起点是下面 per-model 查询的 since ——
+                # 顺序不能反, 否则表格会拿到跨周期的用量 (续订后对不上官方数字).
                 try:
                     meters = fetch_go_status(api_key)   # 首选: 精确到分的金额
                 except Exception:  # noqa: BLE001
                     meters = None
+                usage_since = iso_z(((meters or {}).get("period") or {}).get("starts_at"))
+                rows, unknown, local_pct = build_rows(
+                    fetch_usage_models(api_key, since=usage_since),
+                    limits.get("models") or [])
                 try:
                     zen = fetch_zen_usage(api_key)      # 兜底: 只有取整百分比
                 except Exception:  # noqa: BLE001
@@ -327,6 +361,9 @@ class Handler(BaseHTTPRequestHandler):
                     "zen": zen,
                     "reconcile": reconcile,
                     "pool": pool,
+                    # 表格实际用的统计起点。null = 拿不到官方周期信息, 已降级为
+                    # "不带 since" 的旧行为 —— 跨周期时表格数字会偏大, 前端要提醒.
+                    "usage_since": usage_since,
                     "limits_synced_at": limits.get("synced_at"),
                     "build": BUILD,
                     "started_at": STARTED_AT,
